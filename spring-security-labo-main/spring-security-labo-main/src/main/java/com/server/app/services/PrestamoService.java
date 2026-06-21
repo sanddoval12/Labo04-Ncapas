@@ -91,7 +91,7 @@ public class PrestamoService {
             int page,
             int size
     ) {
-
+        // Valida que el préstamo exista y pertenezca al usuario autenticado
         findEntityByIdAndUser(prestamoId, userId);
 
         return planPagoRepository
@@ -103,10 +103,17 @@ public class PrestamoService {
                 .map(this::toPlanPagoResponseDto);
     }
 
+    /**
+     * Genera la tabla de amortización bajo el sistema francés
+     * (cuota fija): el monto total de cada cuota es siempre el
+     * mismo, pero la proporción de capital e interés cambia mes
+     * a mes (el interés disminuye, el capital aumenta).
+     */
     private List<PlanPago> generarTablaAmortizacion(Prestamo prestamo) {
         BigDecimal capital = prestamo.getCapitalSolicitado();
         int plazoMeses = prestamo.getPlazoMeses();
 
+        // Tasa mensual = tasa anual / 12 / 100 (la tasa anual viene en %)
         BigDecimal tasaMensual = prestamo.getTasaInteresAnual()
                 .divide(BigDecimal.valueOf(12), ESCALA_INTERMEDIA, RoundingMode.HALF_UP)
                 .divide(BigDecimal.valueOf(100), ESCALA_INTERMEDIA, RoundingMode.HALF_UP);
@@ -115,7 +122,12 @@ public class PrestamoService {
 
         List<PlanPago> planesPago = new ArrayList<>();
         BigDecimal saldoPendiente = capital;
-        LocalDate fechaVencimiento = LocalDate.now().plusMonths(1);
+
+        // La primera cuota vence al día siguiente de solicitar el
+        // préstamo (en vez de a un mes) para facilitar las pruebas
+        // manuales del escenario de mora sin tener que esperar.
+        // Las cuotas siguientes mantienen una periodicidad mensual.
+        LocalDate fechaVencimiento = LocalDate.now().plusDays(1);
 
         for (int numeroCuota = 1; numeroCuota <= plazoMeses; numeroCuota++) {
             BigDecimal interesDelMes = saldoPendiente
@@ -125,6 +137,10 @@ public class PrestamoService {
             BigDecimal capitalDelMes;
 
             if (numeroCuota == plazoMeses) {
+                // En la última cuota se ajusta el capital para
+                // que el saldo pendiente quede exactamente en cero,
+                // evitando que queden centavos de diferencia por
+                // los redondeos acumulados en cuotas anteriores.
                 capitalDelMes = saldoPendiente;
             } else {
                 capitalDelMes = cuotaFija
@@ -149,6 +165,12 @@ public class PrestamoService {
         return planesPago;
     }
 
+    /**
+     * Fórmula de cuota fija (sistema francés):
+     * cuota = capital * [ i * (1+i)^n ] / [ (1+i)^n - 1 ]
+     * donde i = tasa mensual, n = número de cuotas.
+     * Si la tasa es cero, la cuota es simplemente capital / n.
+     */
     private BigDecimal calcularCuotaFija(
             BigDecimal capital,
             BigDecimal tasaMensual,
