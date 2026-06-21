@@ -7,10 +7,6 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/**
- * DTO para la creación de un nuevo usuario.
- * Aplica validaciones estrictas sobre los campos de entrada.
- */
 @Data
 public class UserCreateDto {
 
